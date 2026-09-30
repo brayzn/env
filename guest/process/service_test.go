@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -602,5 +603,31 @@ func TestNegativeOutputOffsetsAndOwnerCancellationReset(t *testing.T) {
 	}
 	if _, err := tracker.Start([]string{"sh", "-c", "true"}, "", nil); err != nil {
 		t.Fatal("new owner inherited previous cancellation ceiling", err)
+	}
+}
+
+func TestKillAllDuringCompletedProcessPruning(t *testing.T) {
+	tracker, err := NewTracker(DefaultConfig(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tracker.Close()
+	for round := 0; round < 50; round++ {
+		tracker.mu.Lock()
+		for i := 0; i < 100; i++ {
+			tracker.processes[uuid.NewString()] = &ProcessState{Status: ateenvv1alpha.ProcessStatus_PROCESS_STATUS_COMPLETED, FinishedAt: time.Now().Add(-24 * time.Hour)}
+		}
+		tracker.mu.Unlock()
+		var pruning sync.WaitGroup
+		pruning.Add(1)
+		go func() { defer pruning.Done(); tracker.pruneExpired() }()
+		err := tracker.KillAll()
+		pruning.Wait()
+		if err != nil {
+			t.Fatal("completed record pruning rejected drain", err)
+		}
+		if err := tracker.ResetOwner(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

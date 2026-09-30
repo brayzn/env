@@ -461,7 +461,7 @@ func (t *Tracker) KillAll() error {
 	}
 	t.mu.RUnlock()
 	for _, id := range ids {
-		if _, err := t.Kill(id); err != nil {
+		if _, err := t.Kill(id); err != nil && status.Code(err) != codes.NotFound {
 			return err
 		}
 	}
